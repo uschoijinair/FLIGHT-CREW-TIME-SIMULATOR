@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>운항승무원 비행시간 시뮬레이션</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+    
+    <!-- 폰트 로드: Inter와 Pretendard -->
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+
+    <style>
+        :root { --blue-500: #3b82f6; --gray-600: #4b5563; --green-500: #22c55e; --amber-500: #f59e0b; --red-500: #ef4444; }
+        /* 폰트 스타일 변경 */
+        html { 
+            font-family: 'Inter', 'Pretendard', sans-serif; 
+            scroll-behavior: smooth; 
+        }
+        body { 
+            background-color: #f1f5f9;
+            color: #374151;
+        }
+        .tooltip {
+            position: absolute; text-align: left; padding: 10px; font-size: 14px;
+            background: rgba(17, 24, 39, 0.9); color: white; border-radius: 8px;
+            pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 100;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            min-width: 250px;
+        }
+        .axis .tick text { font-size: 13px; font-weight: 500; }
+        .summary-col-title { font-size: 1.2rem; font-weight: 800; text-anchor: middle; }
+        .promotion-zone-label { font-size: 14px; font-weight: 700; }
+        .senior-promo-label { fill: #854d0e; }
+        .chief-promo-label { fill: #166534; }
+        .condition-toggle { display: flex; border: 1px solid #d1d5db; border-radius: 0.375rem; overflow: hidden; }
+        .condition-toggle label {
+            flex: 1; padding: 0.3rem 0; text-align: center; font-size: 0.8rem;
+            cursor: pointer; background-color: #f9fafb; color: #4b5563; transition: all 0.2s;
+        }
+        .condition-toggle input:checked + label { background-color: var(--blue-500); color: white; font-weight: 700; }
+        .condition-toggle input { display: none; }
+        .kpi-card { background-color: white; padding: 1rem; border-radius: 0.5rem; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); text-align: center; }
+        .kpi-title { font-size: 0.9rem; color: #6b7280; font-weight: 500; }
+        .kpi-value { font-size: 1.6rem; font-weight: 800; color: #111827; }
+        .chart-container { position: relative; }
+        .pyramid-axis-label { font-size: 0.85rem; font-weight: 800; fill: #4b5563;}
+        .bar-label { font-size: 12px; fill: white; pointer-events: none; text-shadow: 0 0 2px black; font-weight: 700; }
+        .toggle-icon { transition: transform 0.3s; }
+        .rotate-180 { transform: rotate(-180deg); }
+        .hidden { display: none; }
+        .tab {
+            padding: 0.75rem 1.25rem; cursor: pointer; border-bottom: 3px solid transparent;
+            margin-bottom: -1px; font-weight: 500; color: #4b5563;
+            transition: all 0.2s ease-in-out; display: flex; align-items: center; font-size: 1.05rem;
+        }
+        .tab:hover { background-color: #f9fafb; color: #1f2937; }
+        .tab.active { color: var(--blue-500); border-bottom-color: var(--blue-500); font-weight: 700; }
+        .tab-delete-btn {
+            margin-left: 0.75rem; color: #9ca3af; font-weight: bold; padding: 0 0.4rem;
+            border-radius: 9999px; line-height: 1.25rem; font-size: 1.1rem;
+        }
+        .tab-delete-btn:hover { background-color: #fee2e2; color: #dc2626; }
+        .modal-overlay {
+            position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.6);
+            display: flex; align-items: center; justify-content: center; z-index: 50; transition: opacity 0.3s ease;
+        }
+        .modal-box {
+            background-color: white; padding: 1.5rem; border-radius: 0.5rem;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+            width: 90%; max-width: 400px; transform: scale(0.95); transition: transform 0.3s ease;
+        }
+        .modal-overlay:not(.hidden) .modal-box { transform: scale(1); }
+        .control-section-box {
+            background-color: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px solid #e5e7eb;
+            height: 100%; display: flex; flex-direction: column;
+        }
+        .noUi-target { height: 8px; background: #e5e7eb; border: none; box-shadow: none; } 
+        .noUi-connect { background: var(--blue-500); }
+        .noUi-handle { 
+            width: 6px;           /* 핸들 너비 */
+            height: 20px;          /* 핸들 높이 */
+            border-radius: 3px;    /* 모서리를 살짝 둥글게 */
+            right: -3px;           /* 위치 조정 (너비의 절반) */
+            top: -6px;             /* 위치 조정 (높이에 맞게) */
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2); /* 입체감을 위한 그림자 */
+            border: 1px solid rgba(0,0,0,0.1); /* 테두리 추가 */
+            background-color: white; /* 배경색 변경 */
+            cursor: grab;
+        }
+        .noUi-handle::before {
+            content: ""; display: block; width: 2px; height: 10px;
+            background: var(--blue-500); position: absolute;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+        }
+        .noUi-handle:focus { outline: none; }
+        .pilot.faded { opacity: 0.5; }
+        .pilot.selected { fill: var(--red-500); stroke: #fee2e2; stroke-width: 3px; r: 8; }
+        #selection-details-panel {
+            background-color: #f8fafc; border-top: 2px solid #e2e8f0;
+            transition: all 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto p-4 md:p-8">
+        
+        <div id="dashboard-page">
+            <header class="text-center mb-8">
+                <h1 class="text-4xl md:text-5xl font-black text-gray-800">운항승무원 비행시간 시뮬레이션</h1>
+            </header>
+            <div id="dashboard-view" class="max-w-screen-2xl mx-auto">
+                <div class="col-span-12 bg-white p-4 rounded-lg shadow-md mb-6">
+                    <div class="flex justify-between items-center cursor-pointer" id="toggle-controls">
+                        <h2 class="text-xl font-bold text-gray-800">승격 기준 설정</h2>
+                        <svg class="w-6 h-6 toggle-icon" id="toggle-controls-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
+
+                    <div id="controls-content" class="mt-4 transition-all duration-300 space-y-6">
+                        <div class="border-b pb-6">
+                             <input type="file" id="csv-upload" accept=".csv" class="block w-full max-w-md text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div class="control-section-box">
+                                <p class="font-bold text-center text-base mb-2">기장 승격</p>
+                                <div class="condition-toggle mb-2">
+                                    <input type="radio" id="fo-promo-and" name="fo-promo-condition" value="AND" checked><label for="fo-promo-and">AND</label>
+                                    <input type="radio" id="fo-promo-or" name="fo-promo-condition" value="OR"><label for="fo-promo-or">OR</label>
+                                </div>
+                                <div class="space-y-1">
+                                    <input type="number" id="fo-promo-years" placeholder="근속(년)" class="w-full p-1 border rounded-md placeholder-gray-400 text-center text-base font-semibold">
+                                    <input type="number" id="fo-promo-hours" placeholder="총 비행시간" class="w-full p-1 border rounded-md placeholder-gray-400 text-center text-base font-semibold">
+                                </div>
+                            </div>
+                            <div class="control-section-box">
+                                <p class="font-bold text-center text-base mb-2">선임기장 승격</p>
+                                <div class="condition-toggle mb-2">
+                                    <input type="radio" id="senior-and" name="senior-condition" value="AND" checked><label for="senior-and">AND</label>
+                                    <input type="radio" id="senior-or" name="senior-condition" value="OR"><label for="senior-or">OR</label>
+                                </div>
+                                <div class="space-y-1">
+                                    <input type="number" id="senior-captain-years" placeholder="기장 근속(년)" class="w-full p-1 border rounded-md placeholder-gray-400 text-center text-base font-semibold">
+                                    <input type="number" id="senior-captain-hours" placeholder="기장 비행시간" class="w-full p-1 border rounded-md placeholder-gray-400 text-center text-base font-semibold">
+                                </div>
+                            </div>
+                            <div class="control-section-box">
+                                <p class="font-bold text-center text-base mb-2">수석기장 승격</p>
+                                <div class="condition-toggle mb-2">
+                                    <input type="radio" id="chief-and" name="chief-condition" value="AND" checked><label for="chief-and">AND</label>
+                                    <input type="radio" id="chief-or" name="chief-condition" value="OR"><label for="chief-or">OR</label>
+                                </div>
+                                <div class="space-y-1">
+                                    <input type="number" id="chief-captain-years" placeholder="기장 근속(년)" class="w-full p-1 border rounded-md placeholder-gray-400 text-center text-base font-semibold">
+                                    <input type="number" id="chief-captain-hours" placeholder="기장 비행시간" class="w-full p-1 border rounded-md placeholder-gray-400 text-center text-base font-semibold">
+                                </div>
+                            </div>
+                             <div class="control-section-box justify-center items-center p-2">
+                                <button id="promo-apply" class="w-full h-full text-lg font-bold bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">승격기준<br>적용</button>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-start">
+                    <div id="main-content-area" class="flex-grow w-0">
+                        <div id="main-chart-area" class="w-full bg-white p-2 rounded-lg shadow-md">
+                            <div id="summary-chart-container" class="mb-0"></div>
+                            <div id="captain-chart"></div>
+                            <div id="selection-details-panel" class="hidden"></div>
+                        </div>
+                    </div>
+
+                    <!-- Side Panel Wrapper for stable layout -->
+                    <div class="relative ml-4 flex-shrink-0">
+                        <!-- 펼침 버튼 (평소에 숨겨져 있음) -->
+                        <button id="show-sim-panel-btn" class="hidden p-2 bg-white rounded-lg shadow-md hover:bg-gray-100 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                            </svg>
+                        </button>
+            
+                        <!-- 시뮬레이션 패널 -->
+                        <div id="inline-controls-panel" class="w-64">
+                            <div class="bg-white rounded-lg shadow-md p-4 space-y-4">
+                                <div class="flex justify-between items-center">
+                                    <h4 class="font-bold text-gray-800 text-lg">시뮬레이션</h4>
+                                    <button id="collapse-sim-panel-btn" class="p-1 rounded-full hover:bg-gray-200 transition-colors">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                
+                                <!-- MODIFICATION: Date display changed to editable inputs -->
+                                <div class="text-center flex justify-center items-center">
+                                    <input type="number" id="current-year" class="w-20 text-center font-bold text-xl text-blue-600 bg-transparent border-b-2 border-transparent focus:border-blue-500 focus:outline-none">
+                                    <span class="font-semibold text-lg">년</span>
+                                    <input type="number" id="current-month" class="w-12 text-center font-bold text-xl text-blue-600 ml-2 bg-transparent border-b-2 border-transparent focus:border-blue-500 focus:outline-none">
+                                    <span class="font-semibold text-lg">월</span>
+                                </div>
+                                <input type="number" id="sim-step-hours" placeholder="연간 비행" class="w-full p-1.5 border rounded-md text-center text-sm placeholder-gray-400">
+                                
+                                <div class="grid grid-cols-2 gap-x-2 gap-y-1">
+                                    <span class="text-center font-semibold text-gray-600 text-sm">개월</span>
+                                    <span class="text-center font-semibold text-gray-600 text-sm">연차</span>
+                                    <div class="flex">
+                                        <button id="sim-month-minus" class="w-full text-base font-bold py-1 bg-blue-500 text-white rounded-l-md hover:bg-blue-600 transition-colors">-</button>
+                                        <button id="sim-month-plus" class="w-full text-base font-bold py-1 bg-blue-500 text-white rounded-r-md hover:bg-blue-600 transition-colors">+</button>
+                                    </div>
+                                    <div class="flex">
+                                        <button id="sim-year-minus" class="w-full text-base font-bold py-1 bg-blue-500 text-white rounded-l-md hover:bg-blue-600 transition-colors">-</button>
+                                        <button id="sim-year-plus" class="w-full text-base font-bold py-1 bg-blue-500 text-white rounded-r-md hover:bg-blue-600 transition-colors">+</button>
+                                    </div>
+                                </div>
+
+                                 <div class="flex gap-2 pt-1">
+                                      <button id="sim-save" class="w-full text-sm font-semibold px-2 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors">저장</button>
+                                      <button id="sim-reset" class="w-full text-sm font-semibold px-2 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">초기화</button>
+                                 </div>
+                                 <button id="show-results-button" class="w-full text-base font-semibold py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">상세 결과 보기</button>
+                                 
+                                 <hr class="my-2 border-gray-300"/>
+
+                                 <!-- Axis Controls -->
+                                 <div class="space-y-3">
+                                      <div>
+                                           <label class="font-semibold text-gray-700 text-sm">기장 근속 (년) 범위</label>
+                                           <div id="cap-x-slider" class="mt-2 mb-1"></div>
+                                           <div class="flex justify-between items-center gap-2">
+                                                <input type="number" id="cap-x-min-input" class="w-full p-1 border rounded-md text-xs text-center">
+                                                <span class="text-gray-400">-</span>
+                                                <input type="number" id="cap-x-max-input" class="w-full p-1 border rounded-md text-xs text-center">
+                                           </div>
+                                      </div>
+                                      <div>
+                                           <label class="font-semibold text-gray-700 text-sm">기장 비행시간 범위</label>
+                                           <div id="cap-y-slider" class="mt-2 mb-1"></div>
+                                           <div class="flex justify-between items-center gap-2">
+                                                <input type="number" id="cap-y-min-input" step="100" class="w-full p-1 border rounded-md text-xs text-center">
+                                                 <span class="text-gray-400">-</span>
+                                                <input type="number" id="cap-y-max-input" step="100" class="w-full p-1 border rounded-md text-xs text-center">
+                                           </div>
+                                      </div>
+                                      <div class="flex gap-2 pt-1">
+                                           <button id="auto-fit-button" class="w-full text-sm font-semibold py-1.5 px-2 rounded-md transition-colors bg-blue-100 hover:bg-blue-200 text-blue-700">자동 맞춤</button>
+                                           <button id="reset-axis-button" class="w-full text-sm font-semibold py-1.5 px-2 rounded-md transition-colors bg-gray-200 hover:bg-gray-300 text-gray-700">기본값</button>
+                                      </div>
+                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        
+            <div id="results-view" class="max-w-screen-xl mx-auto hidden">
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800">연도별 시뮬레이션 결과</h1>
+                    <div class="flex gap-2">
+                        <button id="export-to-excel-button" class="text-sm font-semibold px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors">엑셀로 내보내기</button>
+                        <button id="delete-all-sims-button" class="text-sm font-semibold px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">전체 삭제</button>
+                        <button id="back-to-dashboard-button" class="text-sm font-semibold px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">← 대시보드로 돌아가기</button>
+                    </div>
+                </div>
+                <div class="bg-white p-4 sm:p-6 rounded-lg shadow-md">
+                    <div id="simulation-tabs" class="flex border-b border-gray-200 mb-4 flex-wrap"></div>
+                    <div id="results-content" class="space-y-8"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <p id="confirm-modal-message" class="text-gray-800 text-center mb-6"></p>
+            <div class="flex justify-end gap-4">
+                <button id="confirm-modal-no" class="px-4 py-2 rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 font-semibold">아니오</button>
+                <button id="confirm-modal-yes" class="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700 font-semibold">예</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="notify-modal" class="modal-overlay hidden" style="background-color: transparent; pointer-events: none;">
+        <div id="notify-modal-box" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg" style="pointer-events: auto;">
+            <p id="notify-modal-message"></p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // 전역 변수 선언
+            let originalData = [], processedData = [], savedSimulations = [];
+            let cumulativeAddMonths = 0;
+            let basePromoCriteria = {};
+            const colorScale = d3.scaleOrdinal().domain(['민', '군']).range(['#3b82f6', '#f97316']);
+            const mainMargin = { top: 20, right: 30, bottom: 40, left: 60 };
+            let mainChartHeight = 500;
+            let previousDataState = new Map();
+            let baseDataState = new Map();
+            let initialPilotState = new Map();
+            let isAxisManuallySet = false;
+            let arePanelsOpen = true;
+            let selectedPilotIds = new Set();
+            let capXSlider, capYSlider;
+
+            const captainSvg = d3.select("#captain-chart").append("svg");
+            const summarySvg = d3.select("#summary-chart-container").append("svg");
+            const tooltip = d3.select("#tooltip");
+            
+            // ---- Custom Modal Functions ----
+            const confirmModal = document.getElementById('confirm-modal');
+            const confirmModalYes = document.getElementById('confirm-modal-yes');
+            const confirmModalNo = document.getElementById('confirm-modal-no');
+            const confirmModalMessage = document.getElementById('confirm-modal-message');
+            let confirmCallback = null;
+
+            function showConfirmModal(message, onConfirm) {
+                confirmModalMessage.textContent = message;
+                confirmCallback = onConfirm;
+                confirmModal.classList.remove('hidden');
+            }
+
+            function hideConfirmModal() {
+                confirmModal.classList.add('hidden');
+                confirmCallback = null;
+            }
+
+            confirmModalYes.addEventListener('click', () => {
+                if (confirmCallback) {
+                    confirmCallback();
+                }
+                hideConfirmModal();
+            });
+            confirmModalNo.addEventListener('click', hideConfirmModal);
+
+            const notifyModal = document.getElementById('notify-modal');
+            const notifyModalMessage = document.getElementById('notify-modal-message');
+            let notifyTimeout = null;
+
+            function showNotifyModal(message) {
+                if (notifyTimeout) clearTimeout(notifyTimeout);
+                notifyModalMessage.textContent = message;
+                notifyModal.classList.remove('hidden');
+                notifyTimeout = setTimeout(() => {
+                    notifyModal.classList.add('hidden');
+                }, 2500);
+            }
+
+            // ---- 핵심 유틸리티 함수 ----
+            function getProcessedData(data, settings) {
+                const { addMonths, promoCriteria, foPromoCriteria, annualHours } = settings;
+                let tempProcessedData = JSON.parse(JSON.stringify(data));
+                const senior = promoCriteria.senior || { y: 0, h: 0, c: 'AND' };
+                const chief = promoCriteria.chief || { y: 0, h: 0, c: 'AND' };
+                
+                tempProcessedData.forEach(d => {
+                    const totalFoHours = d['사내 부기장 비행시간'] + d['사외 비행시간'];
+                    
+                    let promoMonth = Infinity;
+                    const hoursPerMonth = annualHours / 12;
+                    const preSimTotalHours = totalFoHours + d['사내 기장 비행시간'];
+                    
+                    let monthsForHours = 0;
+                    if (foPromoCriteria.hours > preSimTotalHours) {
+                        if (hoursPerMonth <= 0) monthsForHours = Infinity;
+                        else monthsForHours = (foPromoCriteria.hours - preSimTotalHours) / hoursPerMonth;
+                    }
+                    
+                    let monthsForYears = 0;
+                    if (foPromoCriteria.years > d.basePositionYears) {
+                        monthsForYears = (foPromoCriteria.years - d.basePositionYears) * 12;
+                    }
+
+                    if (foPromoCriteria.c === 'AND') {
+                        promoMonth = Math.ceil(Math.max(monthsForHours, monthsForYears));
+                    } else {
+                        promoMonth = Math.ceil(Math.min(monthsForHours, monthsForYears));
+                    }
+
+                    const totalSimHours = (annualHours / 12) * addMonths;
+                    
+                    d.justPromotedToCaptain = false;
+                    const wasCaptain = d.직책 === '기장';
+
+                    if (!wasCaptain && promoMonth <= addMonths) {
+                        d.currentPosition = '기장';
+                        d.justPromotedToCaptain = true;
+                        const monthsAsCaptain = addMonths - promoMonth;
+                        d.positionServiceYears = monthsAsCaptain / 12;
+                        d.display_capHours = d['사내 기장 비행시간'] + (monthsAsCaptain * hoursPerMonth);
+                    } else if (wasCaptain) {
+                        d.currentPosition = '기장';
+                        d.positionServiceYears = d.basePositionYears + (addMonths / 12);
+                        d.display_capHours = d['사내 기장 비행시간'] + totalSimHours;
+                    } else {
+                        d.currentPosition = '부기장';
+                        d.positionServiceYears = d.basePositionYears + (addMonths / 12);
+                        d.display_capHours = d['사내 기장 비행시간'];
+                    }
+                    
+                    d.display_foHours = d['사내 부기장 비행시간'] + (wasCaptain || d.justPromotedToCaptain ? 0 : totalSimHours);
+                    d.display_externalHours = d['사외 비행시간'];
+                    d.totalFlightHours = d.display_foHours + d.display_capHours + d.display_externalHours;
+
+                    if (d.currentPosition === '기장') {
+                        const checkPromo = (years, hours, criteria) => (criteria.c === 'AND' ? (years >= criteria.y && hours >= criteria.h) : (years >= criteria.y || hours >= criteria.h));
+                        d.promotionStatus = '기장';
+                        if (chief.y > 0 && chief.h > 0 && checkPromo(d.positionServiceYears, d.display_capHours, chief)) {
+                            d.promotionStatus = '수석기장';
+                        } else if (senior.y > 0 && senior.h > 0 && checkPromo(d.positionServiceYears, d.display_capHours, senior)) {
+                            d.promotionStatus = '선임기장';
+                        }
+                    } else {
+                        d.promotionStatus = '부기장';
+                    }
+                });
+                return tempProcessedData;
+            }
+
+
+            // ---- 대시보드 뷰 렌더링 함수 ----
+            function redrawAllVisuals(options = {}) {
+                const { drawTails = false } = options;
+
+                if (originalData.length === 0) return; 
+                
+                processedData.forEach(d => {
+                    previousDataState.set(d.사번, { 
+                        positionServiceYears: d.positionServiceYears, 
+                        totalFlightHours: d.totalFlightHours,
+                        display_foHours: d.display_foHours,
+                        display_capHours: d.display_capHours,
+                        display_externalHours: d.display_externalHours,
+                        currentPosition: d.currentPosition,
+                        justPromotedToCaptain: d.justPromotedToCaptain
+                    }); 
+                });
+
+                const settings = {
+                    annualHours: +d3.select("#sim-step-hours").property("value") || 0,
+                    foPromoCriteria: {
+                        years: +d3.select("#fo-promo-years").property("value"),
+                        hours: +d3.select("#fo-promo-hours").property("value"),
+                        c: d3.select('input[name="fo-promo-condition"]:checked').property("value")
+                    },
+                    promoCriteria: basePromoCriteria,
+                    addMonths: cumulativeAddMonths
+                };
+                
+                processedData = getProcessedData(originalData, settings); 
+                
+                const captainData = processedData.filter(d => d.currentPosition === '기장'); 
+                if (!isAxisManuallySet) { 
+                    updateAxisDomains(captainData); 
+                } 
+                
+                updateChartDimensions();
+                updateSelectionPanel();
+                drawSummaryChart(captainData); 
+                drawCaptainChart(captainData, drawTails); 
+            }
+            
+            function drawSummaryChart(captainData) {
+                const container = d3.select("#summary-chart-container").node();
+                if (!container) return;
+                const chartWidth = container.getBoundingClientRect().width;
+                if (chartWidth <= 0) return;
+                const chartHeight = 100;
+                summarySvg.attr("width", chartWidth).attr("height", chartHeight);
+                summarySvg.html("");
+
+                const getStatsByRole = (data) => {
+                    const stats = { 선임기장: { '민': 0, '군': 0, total: 0 }, 수석기장: { '민': 0, '군': 0, total: 0 } };
+                    data.forEach(d => {
+                        if (d.promotionStatus === '선임기장' || d.promotionStatus === '수석기장') {
+                            stats[d.promotionStatus][d.출신]++;
+                            stats[d.promotionStatus].total++;
+                        }
+                    });
+                    return stats;
+                };
+                const stats = getStatsByRole(captainData);
+                const summaryLayoutData = [
+                    { title: "선임기장", stats: stats.선임기장 },
+                    { title: "수석기장", stats: stats.수석기장 }
+                ];
+
+                const colTotalWidth = chartWidth / 2;
+                const summaryContainer = summarySvg.append("g").attr("transform", `translate(0, 10)`);
+
+                const cols = summaryContainer.selectAll("g.summary-col")
+                    .data(summaryLayoutData)
+                    .join("g")
+                    .attr("class", "summary-col")
+                    .attr("transform", (d, i) => `translate(${i * colTotalWidth}, 0)`);
+
+                cols.append("text")
+                    .attr("x", colTotalWidth / 2)
+                    .attr("y", 10)
+                    .attr("class", "summary-col-title")
+                    .text(d => d.title);
+                    
+                const chartGroup = cols.append("g")
+                    .attr("transform", `translate(0, 30)`);
+
+                const barWidth = 280;
+                const barHeight = 28;
+                const barX = (colTotalWidth - barWidth) / 2;
+
+                const barScale = d3.scaleLinear().domain([0, 100]).range([0, barWidth]);
+
+                chartGroup.each(function(d) {
+                    const group = d3.select(this);
+                    const total = d.stats.total;
+
+                    if (total === 0) {
+                        group.append("rect").attr("x", barX).attr("y", 0).attr("width", barWidth).attr("height", barHeight).attr("fill", "#e5e7eb").attr("rx", 4);
+                        group.append("text").attr("x", colTotalWidth / 2).attr("y", barHeight / 2).attr("text-anchor", "middle").attr("alignment-baseline", "middle").style("font-size", "13px").style("font-weight", "bold").attr("fill", "#9ca3af").text("대상 없음");
+                        return;
+                    }
+
+                    const minPct = (d.stats['민'] / total) * 100;
+                    const gunPct = 100 - minPct;
+
+                    if (minPct > 0) group.append("rect").attr("x", barX).attr("y", 0).attr("width", barScale(minPct)).attr("height", barHeight).attr("fill", colorScale('민'));
+                    if (gunPct > 0) group.append("rect").attr("x", barX + barScale(minPct)).attr("y", 0).attr("width", barScale(gunPct)).attr("height", barHeight).attr("fill", colorScale('군'));
+                    group.append("rect").attr("x", barX).attr("y", 0).attr("width", barWidth).attr("height", barHeight).attr("fill", "none").attr("stroke", "rgba(0,0,0,0.1)").attr("stroke-width", 1).attr("rx", 4);
+
+                    if (minPct > 15) group.append("text").attr("x", barX + barScale(minPct) / 2).attr("y", barHeight / 2).attr("text-anchor", "middle").attr("alignment-baseline", "middle").attr("class", "bar-label").text(`${d.stats['민']}명`);
+                    if (gunPct > 15) group.append("text").attr("x", barX + barScale(minPct) + barScale(gunPct) / 2).attr("y", barHeight / 2).attr("text-anchor", "middle").attr("alignment-baseline", "middle").attr("class", "bar-label").text(`${d.stats['군']}명`);
+                    
+                    group.append("text").attr("x", colTotalWidth / 2).attr("y", barHeight + 20).attr("text-anchor", "middle").style("font-size", "13px").style("fill", "#6b7280").html(`총 <tspan font-weight="bold">${total}</tspan>명`);
+                });
+            }
+            function drawCaptainChart(captainData, drawTails) {
+                const container = d3.select("#captain-chart").node();
+                if (!container) return;
+                const chartWidth = container.getBoundingClientRect().width - mainMargin.left - mainMargin.right;
+                if (chartWidth <= 0) return;
+                
+                captainSvg.attr("width", chartWidth + mainMargin.left + mainMargin.right).attr("height", mainChartHeight);
+                let g = captainSvg.select("g");
+                if (g.empty()) g = captainSvg.append("g");
+                g.attr("transform", `translate(${mainMargin.left},${mainMargin.top})`);
+                
+                g.html("");
+
+                const [xMin, xMax] = capXSlider.noUiSlider.get().map(Number);
+                const [yMin, yMax] = capYSlider.noUiSlider.get().map(Number);
+
+                const xScale = d3.scaleLinear().domain([xMin, xMax]).range([0, chartWidth]);
+                const yScale = d3.scaleLinear().domain([yMin, yMax]).range([mainChartHeight - mainMargin.top - mainMargin.bottom, 0]);
+
+                g.append("g").attr("class", "axis x-axis").attr("transform", `translate(0,${mainChartHeight - mainMargin.top - mainMargin.bottom})`).call(d3.axisBottom(xScale).ticks(chartWidth / 80).tickFormat(d => d + '년'));
+                g.append("g").attr("class", "axis y-axis").call(d3.axisLeft(yScale).ticks((mainChartHeight - mainMargin.top - mainMargin.bottom) / 40)); 
+
+                if (captainData.length === 0) {
+                    g.append("text").attr("x", chartWidth / 2).attr("y", (mainChartHeight - mainMargin.top - mainMargin.bottom) / 2).attr("text-anchor", "middle").attr("fill", "#6b7280").style("font-size", "16px").style("font-weight", "600").text("표시할 기장 데이터가 없습니다.");
+                    return;
+                }
+                
+                const rankColors = { "선임기장": "#f59e0b", "수석기장": "#22c55e" };
+
+                g.insert("rect", ":first-child").attr("width", chartWidth).attr("height", mainChartHeight - mainMargin.top - mainMargin.bottom).attr("fill", "transparent").on("click", () => { selectedPilotIds.clear(); redrawAllVisuals(); });
+
+                const drawZone = (criteria, color, label, labelClass) => {
+                    if (!criteria || !criteria.y || !criteria.h) return;
+                    const x = xScale(criteria.y);
+                    const y = yScale(criteria.h);
+                    const fullWidth = chartWidth - x;
+                    const heightToTop = y;
+                    if (criteria.c === 'AND') {
+                        if (x < chartWidth && y > 0) g.insert("rect", ":first-child").attr("x", x).attr("y", 0).attr("width", fullWidth).attr("height", heightToTop).attr("fill", color).attr("opacity", 0.1);
+                    } else {
+                        if (x < chartWidth) g.insert("rect", ":first-child").attr("x", x).attr("y", 0).attr("width", fullWidth).attr("height", mainChartHeight - mainMargin.top - mainMargin.bottom).attr("fill", color).attr("opacity", 0.1);
+                        if (y > 0 && x > 0) g.insert("rect", ":first-child").attr("x", 0).attr("y", 0).attr("width", x).attr("height", heightToTop).attr("fill", color).attr("opacity", 0.1);
+                    }
+                    if (x < chartWidth && y > 0) {
+                        const textLabel = g.append("text").attr("class", `promotion-zone-label ${labelClass}`).text(label);
+                        textLabel.attr("x", chartWidth - 5).attr("y", yScale(criteria.h) + 15).attr("text-anchor", "end");
+                    }
+                };
+
+                const seniorCriteria = basePromoCriteria.senior;
+                const chiefCriteria = basePromoCriteria.chief;
+                drawZone(chiefCriteria, rankColors.수석기장, "수석기장 구간", "chief-promo-label");
+                drawZone(seniorCriteria, rankColors.선임기장, "선임기장 구간", "senior-promo-label");
+                
+                if (drawTails) {
+                    const tailData = captainData.filter(d => baseDataState.has(d.사번));
+                    g.selectAll("line.tail")
+                        .data(tailData, d => d.사번)
+                        .join("line")
+                        .attr("class", "tail")
+                        .attr("stroke", d => d3.color(colorScale(d.출신)).darker(0.5))
+                        .attr("stroke-width", 1.5)
+                        .attr("stroke-opacity", 0.7)
+                        .attr("x1", d => xScale(baseDataState.get(d.사번).positionServiceYears))
+                        .attr("y1", d => yScale(baseDataState.get(d.사번).display_capHours))
+                        .attr("x2", d => xScale(d.positionServiceYears))
+                        .attr("y2", d => yScale(d.display_capHours));
+                }
+
+                const circles = g.selectAll("circle.pilot").data(captainData, d => d.사번);
+
+                circles.exit().transition().duration(500).attr("r", 0).remove();
+
+                const enterCircles = circles.enter().append("circle").attr("class", "pilot").attr("fill", d => colorScale(d.출신)).attr("stroke", "white").attr("stroke-width", 1.5).style("cursor", "pointer")
+                    .attr("cx", d => {
+                        const oldState = previousDataState.get(d.사번);
+                        const wasCaptain = oldState && oldState.currentPosition === '기장';
+                        return xScale(d.justPromotedToCaptain && !wasCaptain ? 0 : (oldState?.positionServiceYears ?? d.positionServiceYears));
+                    })
+                    .attr("cy", d => {
+                        const oldState = previousDataState.get(d.사번);
+                        return yScale(oldState?.display_capHours ?? d.display_capHours);
+                    })
+                    .attr("r", 6);
+
+                enterCircles.merge(circles)
+                    .on("mouseover", (event, d) => {
+                        tooltip.transition().duration(200).style("opacity", .9);
+                        const tooltipHtml = `<div class="font-bold text-base">${d.성명} (${d.사번})</div><div class="text-sm"><b>출신:</b> ${d.출신} / <b>직급:</b> ${d.promotionStatus}</div><div class="text-sm"><b>기장 근속:</b> ${d.positionServiceYears.toFixed(1)}년</div><div class="text-sm"><b>기장 비행:</b> ${Math.round(d.display_capHours).toLocaleString()}시간</div><hr class="my-1 border-gray-600"><div class="font-semibold">총 비행: ${Math.round(d.totalFlightHours).toLocaleString()}시간</div><div class="text-xs pl-2 text-gray-300"> ├ 사내(부기장): ${Math.round(d.display_foHours).toLocaleString()}</div><div class="text-xs pl-2 text-gray-300"> ├ 사내(기장): ${Math.round(d.display_capHours).toLocaleString()}</div><div class="text-xs pl-2 text-gray-300"> └ 사외: ${Math.round(d.display_externalHours).toLocaleString()}</div>${d.justPromotedToCaptain ? "<br/><span class='text-amber-400 font-bold'>  기장 승격!</span>" : ""}`;
+                        tooltip.html(tooltipHtml).style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0))
+                    .on("click", (event, d) => {
+                        event.stopPropagation();
+                        if (selectedPilotIds.has(d.사번)) {
+                            selectedPilotIds.delete(d.사번);
+                        } else {
+                            selectedPilotIds.add(d.사번);
+                        }
+                        redrawAllVisuals();
+                    })
+                    .attr("class", d => `pilot ${selectedPilotIds.size > 0 ? (selectedPilotIds.has(d.사번) ? 'selected' : 'faded') : ''}`)
+                    .transition().duration(1200)
+                    .attr("cx", d => xScale(d.positionServiceYears))
+                    .attr("cy", d => yScale(d.display_capHours))
+                    .attr("r", d => selectedPilotIds.has(d.사번) ? 8 : 6);
+                
+                circles.filter(d => selectedPilotIds.has(d.사번)).raise();
+            }       
+            function updateAxisDomains(captainData) { 
+                if (captainData.length === 0 && !isAxisManuallySet) { 
+                    capXSlider.noUiSlider.set([0, 15]);
+                    capYSlider.noUiSlider.set([0, 10000]);
+                    return; 
+                } 
+                if (isAxisManuallySet) return; 
+                const [minX, maxX] = d3.extent(captainData, d => d.positionServiceYears); 
+                const [minY, maxY] = d3.extent(captainData, d => d.display_capHours); 
+                const chiefCrit = basePromoCriteria.chief || { y: 0, h: 0 }; 
+                const finalMaxX = Math.ceil(Math.max(maxX || 0, chiefCrit.y) * 1.1); 
+                const finalMaxY = Math.ceil(Math.max(maxY || 0, chiefCrit.h) * 1.1); 
+                const finalMinX = Math.floor(Math.min(minX || 0) * 0.9); 
+                const finalMinY = Math.floor(Math.min(minY || 0) * 0.9); 
+                
+                capXSlider.noUiSlider.set([finalMinX, finalMaxX]);
+                capYSlider.noUiSlider.set([finalMinY, finalMaxY]);
+            }
+            
+            function updateChartDimensions() {
+                const panel = document.getElementById('selection-details-panel');
+                const panelHeight = selectedPilotIds.size > 0 ? panel.offsetHeight : 0;
+                const totalHeight = 650;
+                mainChartHeight = totalHeight - panelHeight;
+            }
+
+            function updateSelectionPanel() {
+                const panel = d3.select("#selection-details-panel");
+                if (selectedPilotIds.size === 0) {
+                    panel.classed("hidden", true);
+                    return;
+                }
+
+                panel.classed("hidden", false).html("");
+
+                const header = panel.append("div").attr("class", "flex justify-between items-center p-2 bg-slate-100");
+                header.append("h4").attr("class", "font-bold text-slate-700").text("선택된 인원 실시간 추적");
+                header.append("button").attr("id", "reset-selection-btn")
+                    .attr("class", "text-xs bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-1 px-2 rounded-md transition-colors")
+                    .text("선택 초기화")
+                    .on("click", () => {
+                        selectedPilotIds.clear();
+                        redrawAllVisuals();
+                    });
+
+                const container = panel.append("div").attr("class", "p-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2");
+                
+                const selectedPilotsData = processedData.filter(d => selectedPilotIds.has(d.사번));
+
+                container.selectAll("div.pilot-card")
+                    .data(selectedPilotsData, d => d.사번)
+                    .join("div")
+                    .attr("class", "pilot-card bg-white p-2 rounded-md shadow-sm border-l-4")
+                    .style("border-color", d => colorScale(d.출신))
+                    .html(d => {
+                        const initialState = initialPilotState.get(d.사번);
+                        const formatDelta = (current, initial) => {
+                            if (!initialState || initial === undefined) return '';
+                            const delta = current - initial;
+                            if (Math.abs(delta) < 1) return '';
+                            const sign = delta > 0 ? '+' : '';
+                            const color = delta > 0 ? 'text-green-500' : 'text-red-500';
+                            return ` <span class="font-mono ${color}">(${sign}${Math.round(delta)})</span>`;
+                        };
+
+                        return `
+                        <div class="font-bold text-sm text-gray-800">${d.성명} (${d.사번})</div>
+                        <div class="text-xs text-gray-500">${d.출신} / ${d.promotionStatus}</div>
+                        <div class="text-xs mt-1 grid grid-cols-2 gap-x-2">
+                            <span>기장 근속:</span><span class="font-semibold text-right">${d.positionServiceYears.toFixed(1)}년</span>
+                            <span>기장 비행:</span><span class="font-semibold text-right">${Math.round(d.display_capHours).toLocaleString()}시간 ${formatDelta(d.display_capHours, initialState?.display_capHours)}</span>
+                        </div>
+                    `;
+                    });
+            }
+
+            // ---- 시뮬레이션 관리 함수 ----
+            function saveSimulation() {
+                if (originalData.length === 0) { showNotifyModal("데이터를 먼저 업로드해주세요."); return; }
+                if (cumulativeAddMonths === 0 && savedSimulations.some(s => s.name === "초기 상태")) return;
+                
+                const simSettings = {
+                    annualHours: +d3.select("#sim-step-hours").property("value") || 0,
+                    foPromoCriteria: {
+                        years: +d3.select("#fo-promo-years").property("value"),
+                        hours: +d3.select("#fo-promo-hours").property("value"),
+                        c: d3.select('input[name="fo-promo-condition"]:checked').property("value")
+                    }
+                };
+
+                const maxYears = Math.floor(cumulativeAddMonths / 12);
+                const baseDate = new Date("2025-05-31");
+                const calculateResults = () => {
+                    const results = [];
+                    for (let y = 0; y <= maxYears; y++) {
+                        const months = y * 12; 
+                        const yearData = getProcessedData(originalData, {...simSettings, addMonths: months, promoCriteria: basePromoCriteria});
+                        
+                        const totalCaptains = yearData.filter(d => ['기장', '선임기장', '수석기장'].includes(d.promotionStatus)).length;
+
+                        const getStats = (status) => {
+                            const filtered = yearData.filter(d => d.promotionStatus === status); const byOrigin = d3.group(filtered, d => d.출신);
+                            const civilianData = byOrigin.get('민') || []; const militaryData = byOrigin.get('군') || [];
+                            const avg = (data, key) => data.length > 0 ? d3.mean(data, d => d[key]) : 0;
+                            return { year: baseDate.getFullYear() + y, total: filtered.length, civilian: civilianData.length, military: militaryData.length, civilianAvgHours: avg(civilianData, 'display_capHours'), civilianAvgYears: avg(civilianData, 'positionServiceYears'), militaryAvgHours: avg(militaryData, 'display_capHours'), militaryAvgYears: avg(militaryData, 'positionServiceYears') };
+                        };
+                        results.push({ year: baseDate.getFullYear() + y, senior: getStats('선임기장'), chief: getStats('수석기장'), totalCaptains: totalCaptains });
+                    }
+                    return results;
+                }
+                
+                const results = calculateResults();
+                let simName = (cumulativeAddMonths === 0) ? "초기 상태" : `시뮬레이션 ${savedSimulations.filter(s => s.name !== "초기 상태").length + 1}`;
+                const newSim = { name: simName, criteria: JSON.parse(JSON.stringify(basePromoCriteria)), results: results, ...simSettings };
+                delete newSim.annualHours;
+                savedSimulations.push(newSim);
+                showNotifyModal(`'${simName}'이(가) 저장되었습니다.`);
+            }
+            
+            function resetSimulation() {
+                cumulativeAddMonths = 0; 
+                updateSimDisplay(); 
+                previousDataState.clear(); 
+                isAxisManuallySet = false;
+                redrawAllVisuals();
+            }
+            function resetAll() { 
+                savedSimulations = []; 
+                selectedPilotIds.clear();
+                resetSimulation(); 
+            }
+            
+            // MODIFICATION: Update input fields instead of text spans
+            function updateSimDisplay() { 
+                const baseYear = 2025; 
+                const baseMonthIndex = 4; // 0-indexed for May
+                const totalMonthsIndex = baseMonthIndex + cumulativeAddMonths; 
+                const year = baseYear + Math.floor(totalMonthsIndex / 12); 
+                const month = (totalMonthsIndex % 12) + 1; 
+                d3.select("#current-year").property("value", year); 
+                d3.select("#current-month").property("value", month); 
+            }
+
+            // ---- 결과 분석 페이지 렌더링 ----
+            function renderResultsPage(activeIndex = -1) {
+                if(activeIndex === -1 && savedSimulations.length > 0) activeIndex = savedSimulations.length - 1;
+                const tabsContainer = d3.select("#simulation-tabs"); tabsContainer.html("");
+                savedSimulations.forEach((sim, i) => {
+                    const tab = tabsContainer.append("div").attr("class", `tab ${i === activeIndex ? 'active' : ''}`).on("click", (event) => { if (event.target.classList.contains('tab-delete-btn')) return; renderResultsPage(i); });
+                    tab.append("span").text(sim.name);
+                    if (sim.name !== "초기 상태") {
+                        tab.append("span").attr("class", "tab-delete-btn").html("&times;").on("click", () => { showConfirmModal(`'${sim.name}' 시뮬레이션을 삭제하시겠습니까?`, () => { savedSimulations.splice(i, 1); renderResultsPage(Math.min(i, savedSimulations.length - 1)); }); });
+                    }
+                });
+                const contentContainer = d3.select("#results-content"); contentContainer.html("");
+                if (savedSimulations.length === 0 || activeIndex < 0) { contentContainer.html("<p class='text-center text-gray-500 py-10'>저장된 시뮬레이션 결과가 없습니다.</p>"); return; }
+                const activeSim = savedSimulations[activeIndex];
+                contentContainer.append("div").attr("id", "results-bi-dashboard");
+                contentContainer.append("div").attr("id", "results-table-container").attr("class", "mt-12");
+                renderBIDashboard(activeSim, "#results-bi-dashboard");
+                renderResultsTable(activeSim.results, "#results-table-container");
+            }
+
+            function renderBIDashboard(simData, containerId) {
+                const container = d3.select(containerId); container.html("");
+                const lastYearData = simData.results[simData.results.length - 1];
+                renderKpiCards(lastYearData, container, simData);
+                const chartsContainer = container.append("div").attr("class", "grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-12 mt-8");
+                renderPyramidChart(simData.results, 'senior', chartsContainer.append("div").attr("class", "lg:col-span-1"), '선임기장 연도별 구성', colorScale);
+                renderPyramidChart(simData.results, 'chief', chartsContainer.append("div").attr("class", "lg:col-span-1"), '수석기장 연도별 구성', colorScale);
+            }
+            
+            function renderKpiCards(lastYearData, container, simSettings) {
+                const kpiContainer = container.append("div")
+                    .attr("class", "flex flex-wrap justify-around items-center bg-slate-50 p-4 rounded-lg shadow-inner w-full");
+                
+                if (!lastYearData) return;
+
+                const totalCaptains = lastYearData.totalCaptains;
+                const seniorTotal = lastYearData.senior.total;
+                const chiefTotal = lastYearData.chief.total;
+
+                const kpis = [
+                    { label: '기장 이상 총원', value: `${totalCaptains || 0}명` },
+                    { label: '선임기장', value: `${seniorTotal}명 (${totalCaptains > 0 ? (seniorTotal / totalCaptains * 100).toFixed(1) : '0.0'}%)` },
+                    { label: '수석기장', value: `${chiefTotal}명 (${totalCaptains > 0 ? (chiefTotal / totalCaptains * 100).toFixed(1) : '0.0'}%)` }
+                ];
+
+                kpis.forEach((kpi, i) => {
+                    const kpiWrapper = kpiContainer.append("div").attr("class", "text-center px-4 py-2");
+                    kpiWrapper.append("div").attr("class", "text-sm font-semibold text-gray-600").text(kpi.label);
+                    kpiWrapper.append("div").attr("class", "text-2xl font-bold text-gray-800").text(kpi.value);
+
+                    if (i < kpis.length - 1) {
+                        kpiContainer.append("div").attr("class", "h-12 w-px bg-gray-200 self-center");
+                    }
+                });
+            }
+            
+            function renderPyramidChart(data, rank, container, title, color) {
+                container.attr("class", "chart-container");
+                container.append("h3").attr("class", "text-lg font-semibold mb-2 text-center").text(title);
+                const svgContainer = container.append("div");
+                const chartData = data.map(d => d[rank]);
+                if (!chartData || chartData.length === 0) return;
+                const width = 550, height = 350;
+                const margin = { top: 20, right: 10, bottom: 40, left: 10 };
+                const regionWidth = (width - margin.left - margin.right) / 2 - 40;
+                const centerGap = 80;
+                const svg = svgContainer.append("svg").attr("width", width).attr("height", height);
+                const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+                const years = chartData.map(d => d.year);
+                const maxVal = d3.max(chartData, d => Math.max(d.civilian, d.military)) || 1;
+                const y = d3.scaleBand().domain(years).range([height - margin.top - margin.bottom, 0]).padding(0.2);
+                const xLeft = d3.scaleLinear().domain([0, maxVal]).range([regionWidth, 0]).nice();
+                const xRight = d3.scaleLinear().domain([0, maxVal]).range([0, regionWidth]).nice();
+                const leftAxisG = g.append("g");
+                const rightAxisG = g.append("g").attr("transform", `translate(${regionWidth + centerGap}, 0)`);
+                const centerAxis = g.append("g").attr("transform", `translate(${regionWidth}, 0)`).call(d3.axisRight(y).tickSize(0));
+                centerAxis.select(".domain").remove();
+                centerAxis.selectAll("text").attr("x", centerGap / 2).attr("text-anchor", "middle").style("font-size", "12px");
+                g.append("g").attr("transform", `translate(0, ${height - margin.top - margin.bottom})`).call(d3.axisBottom(xLeft).ticks(Math.min(Math.ceil(maxVal), 4)).tickFormat(d3.format("d")));
+                g.append("g").attr("transform", `translate(${regionWidth + centerGap}, ${height - margin.top - margin.bottom})`).call(d3.axisBottom(xRight).ticks(Math.min(Math.ceil(maxVal), 4)).tickFormat(d3.format("d")));
+                g.append("text").attr("class", "pyramid-axis-label").attr("x", regionWidth/2).attr("y", -5).attr("text-anchor", "middle").text("민");
+                g.append("text").attr("class", "pyramid-axis-label").attr("x", regionWidth + centerGap + regionWidth/2).attr("y", -5).attr("text-anchor", "middle").text("군");
+                const leftBarGroups = leftAxisG.selectAll("g").data(chartData).join("g").attr("transform", d => `translate(0, ${y(d.year)})`);
+                const rightBarGroups = rightAxisG.selectAll("g").data(chartData).join("g").attr("transform", d => `translate(0, ${y(d.year)})`);
+                leftBarGroups.append("rect").attr("height", y.bandwidth()).attr("x", d => xLeft(d.civilian)).attr("width", d => regionWidth - xLeft(d.civilian)).attr("fill", color('민'));
+                rightBarGroups.append("rect").attr("height", y.bandwidth()).attr("x", 0).attr("width", d => xRight(d.military)).attr("fill", color('군'));
+                leftBarGroups.append("text").attr("class", "bar-label min-label").attr("alignment-baseline", "middle").attr("y", y.bandwidth()/2).attr("x", d => xLeft(d.civilian) + 5).text(d => d.civilian > 0 ? d.civilian : "");
+                rightBarGroups.append("text").attr("class", "bar-label gun-label").attr("alignment-baseline", "middle").attr("y", y.bandwidth()/2).attr("x", d => xRight(d.military) - 5).attr("text-anchor", "end").text(d => d.military > 0 ? d.military : "");
+                leftBarGroups.append("rect").attr("class", "event-rect").attr("height", y.bandwidth()).attr("x", 0).attr("width", regionWidth).attr("fill", "transparent").on("mouseover", (e, d) => showTooltip(e, d, '민')).on("mouseout", hideTooltip);
+                rightBarGroups.append("rect").attr("class", "event-rect").attr("height", y.bandwidth()).attr("x", 0).attr("width", regionWidth).attr("fill", "transparent").on("mouseover", (e, d) => showTooltip(e, d, '군')).on("mouseout", hideTooltip);
+                function showTooltip(event, d, origin) { const originKey = origin === '민' ? 'civilian' : 'military'; tooltip.transition().duration(200).style("opacity", 1); tooltip.html(`<div class="font-bold text-base mb-1">${d.year}년 ${origin} 출신</div><hr class="my-1 border-gray-500"><div>인원수: <span class="font-semibold">${d[originKey]} 명</span></div><div>평균 근속: <span class="font-semibold">${d[originKey + 'AvgYears'].toFixed(1)} 년</span></div><div>평균 비행: <span class="font-semibold">${Math.round(d[originKey + 'AvgHours'])} 시간</span></div>`).style("left", (event.pageX + 15) + "px").style("top", (event.pageY) + "px"); }
+                function hideTooltip() { tooltip.transition().duration(500).style("opacity", 0); }
+            }
+
+            function renderResultsTable(data, containerId) {
+                const container = d3.select(containerId); container.html(`<h3 class="text-lg font-semibold text-center mb-4">상세 데이터</h3>`);
+                const tableContainer = container.append("div").attr("class", "overflow-x-auto");
+                const table = tableContainer.append("table").attr("class", "w-full text-sm text-left text-gray-500");
+                const thead = table.append("thead").attr("class", "text-xs text-gray-700 uppercase bg-gray-50");
+                const tbody = table.append("tbody");
+
+                const headerRow1 = thead.append("tr");
+                headerRow1.append("th").attr("rowspan", 2).attr("class", "px-2 py-2 border text-center align-middle").text("연도");
+                headerRow1.append("th").attr("colspan", 6).attr("class", "px-2 py-2 border text-center bg-amber-100").text("선임기장");
+                headerRow1.append("th").attr("colspan", 6).attr("class", "px-2 py-2 border text-center bg-green-100").text("수석기장");
+                
+                const headerRow2 = thead.append("tr");
+                const subCols = ["총원", "민(명)", "군(명)", "민(평균근속)", "군(평균근속)", "기장 대비 비중"];
+                headerRow2.selectAll("th.sub-col-senior").data(subCols).join("th").attr("class", "px-2 py-2 border font-medium bg-amber-50 text-center").text(d => d);
+                headerRow2.selectAll("th.sub-col-chief").data(subCols).join("th").attr("class", "px-2 py-2 border font-medium bg-green-50 text-center").text(d => d);
+
+                data.forEach(d => {
+                    const r = tbody.append("tr").attr("class", "border-b hover:bg-gray-50");
+                    const { senior, chief, totalCaptains } = d;
+                    const formatPct = (val, total) => total > 0 ? `${val} (${(val / total * 100).toFixed(0)}%)` : val;
+                    const formatRatio = (val, total) => total > 0 ? `${(val / total * 100).toFixed(1)}%` : '0.0%';
+                    
+                    const rowData = [
+                        d.year,
+                        senior.total, formatPct(senior.civilian, senior.total), formatPct(senior.military, senior.total),
+                        senior.civilianAvgYears.toFixed(1),
+                        senior.militaryAvgYears.toFixed(1),
+                        formatRatio(senior.total, totalCaptains),
+
+                        chief.total, formatPct(chief.civilian, chief.total), formatPct(chief.military, chief.total),
+                        chief.civilianAvgYears.toFixed(1),
+                        chief.militaryAvgYears.toFixed(1),
+                        formatRatio(chief.total, totalCaptains),
+                    ];
+                    r.selectAll("td").data(rowData).join("td").attr("class", (d, i) => `px-2 py-2 whitespace-nowrap border text-center ${i===0 || i===1 || i===7 ? 'font-bold text-gray-800' : ''}`).text(d => d);
+                });
+            }
+            
+            function exportToExcel() {
+                const activeTab = d3.select(".tab.active");
+                if (activeTab.empty()) { showNotifyModal("내보낼 데이터가 없습니다."); return; }
+                const activeIndex = savedSimulations.findIndex(sim => sim.name === activeTab.select("span:first-child").text());
+                if (activeIndex === -1) return;
+                const data = savedSimulations[activeIndex].results;
+                let csvContent = "\uFEFF";
+                
+                const header1 = ["연도", "선임기장", "", "", "", "", "", "수석기장", "", "", "", "", "" ];
+                const header2 = ["", "총원", "민(명)", "군(명)", "민(평균근속)", "군(평균근속)", "기장 대비 비중", "총원", "민(명)", "군(명)", "민(평균근속)", "군(평균근속)", "기장 대비 비중"];
+                csvContent += header1.join(",") + "\r\n" + header2.join(",") + "\r\n";
+                
+                data.forEach(d => {
+                    const { senior, chief, totalCaptains } = d;
+                    const formatPct = (val, total) => total > 0 ? `"${val} (${(val / total * 100).toFixed(0)}%)"` : val;
+                    const formatRatio = (val, total) => total > 0 ? `"${(val / total * 100).toFixed(1)}%"` : '"0.0%"';
+                    
+                    const row = [
+                        d.year,
+                        senior.total, formatPct(senior.civilian, senior.total), formatPct(senior.military, senior.total),
+                        senior.civilianAvgYears.toFixed(1),
+                        senior.militaryAvgYears.toFixed(1),
+                        formatRatio(senior.total, totalCaptains),
+                        chief.total, formatPct(chief.civilian, chief.total), formatPct(chief.military, chief.total),
+                        chief.civilianAvgYears.toFixed(1),
+                        chief.militaryAvgYears.toFixed(1),
+                        formatRatio(chief.total, totalCaptains),
+                    ].join(",");
+                    csvContent += row + "\r\n";
+                });
+                
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", `${savedSimulations[activeIndex].name}_결과.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            function setPanelsState(open) {
+                arePanelsOpen = open;
+                const controlsContent = document.getElementById('controls-content');
+                const controlsIcon = document.getElementById('toggle-controls-icon');
+                controlsContent.classList.toggle('hidden', !open);
+                controlsIcon.classList.toggle('rotate-180', !open);
+            }
+            
+            // --- Event Listeners and Initialization ---
+            
+            // MODIFICATION: Add function and listeners for direct date input
+            function updateSimFromInputs() {
+                const year = +d3.select("#current-year").property("value");
+                const month = +d3.select("#current-month").property("value");
+                const baseYear = 2025;
+                const baseMonth = 5;
+
+                if (isNaN(year) || isNaN(month) || year < baseYear || (year === baseYear && month < baseMonth)) {
+                    showNotifyModal("2025년 5월 이전으로 설정할 수 없습니다.");
+                    updateSimDisplay(); // Revert to valid date
+                    return;
+                }
+
+                cumulativeAddMonths = (year - baseYear) * 12 + (month - baseMonth);
+                redrawAllVisuals();
+            }
+
+            d3.select("#current-year").on("change", updateSimFromInputs);
+            d3.select("#current-month").on("change", updateSimFromInputs);
+
+            capXSlider = document.getElementById('cap-x-slider');
+            capYSlider = document.getElementById('cap-y-slider');
+            const capXInputs = [document.getElementById('cap-x-min-input'), document.getElementById('cap-x-max-input')];
+            const capYInputs = [document.getElementById('cap-y-min-input'), document.getElementById('cap-y-max-input')];
+
+            noUiSlider.create(capXSlider, { start: [0, 25], connect: true, step: 1, range: { 'min': 0, 'max': 40 } });
+            noUiSlider.create(capYSlider, { start: [4000, 20000], connect: true, step: 100, range: { 'min': 0, 'max': 30000 } });
+
+            capXSlider.noUiSlider.on('update', (values, handle) => { capXInputs[handle].value = Math.round(values[handle]); });
+            capYSlider.noUiSlider.on('update', (values, handle) => { capYInputs[handle].value = Math.round(values[handle]); });
+            capXSlider.noUiSlider.on('start', () => { isAxisManuallySet = true; });
+            capYSlider.noUiSlider.on('start', () => { isAxisManuallySet = true; });
+            capXSlider.noUiSlider.on('end', () => redrawAllVisuals());
+            capYSlider.noUiSlider.on('end', () => redrawAllVisuals());
+            capXInputs.forEach((input, handle) => input.addEventListener('change', function () { capXSlider.noUiSlider.setHandle(handle, this.value); isAxisManuallySet = true; redrawAllVisuals(); }));
+            capYInputs.forEach((input, handle) => input.addEventListener('change', function () { capYSlider.noUiSlider.setHandle(handle, this.value); isAxisManuallySet = true; redrawAllVisuals(); }));
+
+            d3.select("#fo-promo-years").property("value", 8);
+            d3.select("#fo-promo-hours").property("value", 5500);
+            d3.select("#senior-captain-years").property("value", 7);
+            d3.select("#senior-captain-hours").property("value", 5000);
+            d3.select("#chief-captain-years").property("value", 12);
+            d3.select("#chief-captain-hours").property("value", 8500);
+            d3.select("#promo-apply").dispatch("click");
+
+            d3.select("#csv-upload").on("change", function(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = e => {
+                    originalData = d3.csvParse(e.target.result, d => {
+                        Object.keys(d).forEach(k => {
+                            if (k.includes('시간') || k.includes('기간') || k.includes('근속')) {
+                                const val = parseFloat(d[k]);
+                                d[k] = isNaN(val) ? 0 : val;
+                            }
+                        });
+
+                        const today = new Date("2025-05-31");
+                        const parseDate = (dateStr) => {
+                            if (!dateStr) return null;
+                            const date = new Date(dateStr);
+                            return isNaN(date.getTime()) ? null : date;
+                        };
+                        const entryDate = parseDate(d.입사일);
+                        const promoDateRaw = d.승격일 ? parseDate(d.승격일) : entryDate;
+                        const promoDate = promoDateRaw || entryDate;
+                        const calcYears = (start, end) => {
+                            if (!start || !end) return 0;
+                            return Math.max(0, (end - start) / (1000 * 60 * 60 * 24 * 365.25));
+                        };
+                        d.baseServiceYears = calcYears(entryDate, today);
+                        d.basePositionYears = calcYears(promoDate, today);
+                        return d;
+                    });
+                    
+                    baseDataState.clear();
+                    initialPilotState.clear();
+                    const baseData = getProcessedData(originalData, { addMonths: 0, annualHours: 0, foPromoCriteria: {}, promoCriteria: {} });
+                    baseData.forEach(d => {
+                        const pilotInitialState = {
+                            positionServiceYears: d.positionServiceYears,
+                            totalFlightHours: d.totalFlightHours,
+                            display_foHours: d.display_foHours,
+                            display_capHours: d.display_capHours,
+                            display_externalHours: d.display_externalHours,
+                            currentPosition: d.currentPosition
+                        };
+                        if(d.currentPosition === '기장') {
+                            baseDataState.set(d.사번, pilotInitialState);
+                        }
+                        initialPilotState.set(d.사번, pilotInitialState);
+                    });
+
+                    resetAll();
+                };
+                reader.readAsText(file, "UTF-8");
+            });
+
+            d3.select("#sim-month-plus").on("click", () => { cumulativeAddMonths += 1; updateSimDisplay(); redrawAllVisuals(); });
+            d3.select("#sim-month-minus").on("click", () => { if (cumulativeAddMonths > 0) { cumulativeAddMonths -= 1; updateSimDisplay(); redrawAllVisuals(); } });
+            d3.select("#sim-year-plus").on("click", () => { cumulativeAddMonths += 12; updateSimDisplay(); redrawAllVisuals(); });
+            d3.select("#sim-year-minus").on("click", () => { if (cumulativeAddMonths >= 12) { cumulativeAddMonths -= 12; updateSimDisplay(); redrawAllVisuals(); } });
+            
+            d3.select("#sim-save").on("click", saveSimulation);
+            d3.select("#sim-reset").on("click", resetSimulation);
+            
+            d3.select("#promo-apply").on("click", () => { basePromoCriteria = { senior: { y: +d3.select("#senior-captain-years").property("value"), h: +d3.select("#senior-captain-hours").property("value"), c: d3.select('input[name="senior-condition"]:checked').property("value") }, chief: { y: +d3.select("#chief-captain-years").property("value"), h: +d3.select("#chief-captain-hours").property("value"), c: d3.select('input[name="chief-condition"]:checked').property("value") } }; redrawAllVisuals(); });
+            d3.selectAll('input[name="senior-condition"], input[name="chief-condition"]').on("change", () => d3.select("#promo-apply").dispatch("click"));
+            
+            d3.selectAll("#fo-promo-years, #fo-promo-hours, input[name='fo-promo-condition']").on("change", () => redrawAllVisuals());
+            
+            document.getElementById('toggle-controls').addEventListener('click', () => setPanelsState(!arePanelsOpen));
+            
+            d3.select("#auto-fit-button").on("click", () => { isAxisManuallySet = false; redrawAllVisuals(); });
+            d3.select("#reset-axis-button").on("click", () => {
+                isAxisManuallySet = true;
+                capXSlider.noUiSlider.set([0, 25]);
+                capYSlider.noUiSlider.set([4000, 20000]);
+                redrawAllVisuals();
+            });
+            
+            const simPanel = document.getElementById('inline-controls-panel'), collapseSimPanelBtn = document.getElementById('collapse-sim-panel-btn'), showSimPanelBtn = document.getElementById('show-sim-panel-btn');
+            collapseSimPanelBtn.addEventListener('click', () => { simPanel.classList.add('hidden'); showSimPanelBtn.classList.remove('hidden'); setTimeout(() => redrawAllVisuals(), 10); });
+            showSimPanelBtn.addEventListener('click', () => { simPanel.classList.remove('hidden'); showSimPanelBtn.classList.add('hidden'); setTimeout(() => redrawAllVisuals(), 10); });
+
+            setPanelsState(true); 
+            // Initialize the display
+            updateSimDisplay();
+            window.addEventListener('resize', () => { 
+                if(!document.getElementById('dashboard-page').classList.contains('hidden')) redrawAllVisuals(); 
+                if(!document.getElementById('results-view').classList.contains('hidden')) {
+                    const activeTab = d3.select(".tab.active");
+                    const activeIndex = activeTab.empty() ? -1 : savedSimulations.findIndex(sim => sim.name === activeTab.select("span:first-child").text());
+                    renderResultsPage(activeIndex);
+                }
+            });
+            d3.select("#show-results-button").on("click", () => { document.getElementById('dashboard-view').classList.add('hidden'); document.getElementById('results-view').classList.remove('hidden'); requestAnimationFrame(() => { renderResultsPage(savedSimulations.length - 1); }); });
+            d3.select("#back-to-dashboard-button").on("click", () => { document.getElementById('dashboard-view').classList.remove('hidden'); document.getElementById('results-view').classList.add('hidden'); });
+            d3.select("#delete-all-sims-button").on("click", () => { showConfirmModal("저장된 모든 시뮬레이션 결과를 삭제하시겠습니까?", () => { savedSimulations = []; renderResultsPage(); }); });
+            d3.select("#export-to-excel-button").on("click", exportToExcel);
+        });
+    </script>
+</body>
+</html>
